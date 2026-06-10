@@ -4,7 +4,7 @@
 define('DB_HOST', 'localhost');
 define('DB_PORT', '3306');
 define('DB_NAME', 'anovex_admin');
-define('DB_USER', 'root');          // change to your MySQL user
+define('DB_USER', 'anovex_admin');          // change to your MySQL user
 define('DB_PASS', 'admin@anovex2026');              // change to your MySQL password
 define('DB_CHARSET', 'utf8mb4');
 
