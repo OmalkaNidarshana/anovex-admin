@@ -28,7 +28,7 @@ if ($action === 'login' && $method === 'POST') {
     $stmt = $db->prepare('SELECT * FROM users WHERE email = ? AND is_active = 1');
     $stmt->execute([$email]);
     $user = $stmt->fetch();
-
+    print_r($user);
     if (!$user || !password_verify($pass, $user['password'])) {
         jsonResponse(['error' => 'Invalid credentials.'], 401);
     }
