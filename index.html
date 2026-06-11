@@ -572,10 +572,10 @@ textarea.form-input{resize:vertical;min-height:80px}
 const API_BASE = '';   // e.g. 'https://yourdomain.com' or '' for same-origin
 
 // ── STATE ─────────────────────────────────────────────────────
-let TOKEN = localStorage.getItem('anovx_token') || null;
-let CURRENT_USER = JSON.parse(localStorage.getItem('anovx_user') || 'null');
-let CLIENTS = [];
-let editingProposalId = null;
+var TOKEN = localStorage.getItem('anovx_token') || null;
+var CURRENT_USER = JSON.parse(localStorage.getItem('anovx_user') || 'null');
+var CLIENTS = [];
+var editingProposalId = null;
 
 // ── API HELPER ────────────────────────────────────────────────
 async function api(path, options = {}) {
@@ -1070,7 +1070,7 @@ async function viewInvoice(id) {
 }
 
 // ── INVOICE MODAL ─────────────────────────────────────────────
-let lineItems = [];
+var lineItems = [];
 
 function openInvoiceModal() {
   lineItems = [{ description:'', quantity:1, unit_price:0 }];
@@ -1156,7 +1156,7 @@ function toast(msg, color='var(--green)') {
 const fmt  = n => parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
 const fmtN = n => parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 
-let debounceTimer;
+var debounceTimer;
 function debounce(fn, delay) {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(fn, delay);

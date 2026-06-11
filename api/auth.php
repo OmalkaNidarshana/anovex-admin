@@ -1,122 +1,90 @@
 <?php
-// middleware/auth.php — Token-based session guard
-// Compatible with nginx + PHP-FPM (uses all header-reading methods)
+// api/auth.php
+// POST /api/auth.php?action=login
+// POST /api/auth.php?action=logout
+// GET  /api/auth.php?action=me
 
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../middleware/helpers.php';
+require_once __DIR__ . '/../middleware/auth.php';
 
-/**
- * Read the Authorization header across all server environments.
- * nginx+PHP-FPM does not always populate getallheaders(), so we
- * check every possible location the header might land.
- */
-function getAuthHeader(): string
-{
-    // Method 1 — most reliable on nginx with fastcgi_param HTTP_AUTHORIZATION
-    if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
-        return $_SERVER['HTTP_AUTHORIZATION'];
-    }
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
-    // Method 2 — Apache mod_rewrite / some nginx setups
-    if (!empty($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
-        return $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
-    }
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
-    // Method 3 — apache_request_headers() when available
-    if (function_exists('apache_request_headers')) {
-        $headers = apache_request_headers();
-        if (!empty($headers['Authorization'])) {
-            return $headers['Authorization'];
-        }
-        if (!empty($headers['authorization'])) {
-            return $headers['authorization'];
-        }
-    }
+$action = $_GET['action'] ?? '';
+$method = $_SERVER['REQUEST_METHOD'];
 
-    // Method 4 — getallheaders() fallback (works on Apache, sometimes nginx)
-    if (function_exists('getallheaders')) {
-        $headers = getallheaders();
-        foreach ($headers as $key => $value) {
-            if (strtolower($key) === 'authorization') {
-                return $value;
-            }
-        }
-    }
+// ── LOGIN ─────────────────────────────────────────────────────
+if ($action === 'login' && $method === 'POST') {
+    $body  = getBody();
+    $email = trim($body['email'] ?? '');
+    $pass  = trim($body['password'] ?? '');
 
-    // Method 5 — scan all $_SERVER keys as last resort
-    foreach ($_SERVER as $key => $value) {
-        if (strtolower($key) === 'http_authorization') {
-            return $value;
-        }
-    }
+    if (!$email || !$pass)
+        jsonResponse(['error' => 'Email and password are required.'], 422);
 
-    return '';
+    $db   = getDB();
+    $stmt = $db->prepare('SELECT * FROM users WHERE email = ? AND is_active = 1 LIMIT 1');
+    $stmt->execute([$email]);
+    $user = $stmt->fetch();
+
+    if (!$user || !password_verify($pass, $user['password']))
+        jsonResponse(['error' => 'Invalid credentials.'], 401);
+
+    // Generate token
+    $rawToken    = bin2hex(random_bytes(32));
+    $hashedToken = hash('sha256', $rawToken);
+    $expiresAt   = date('Y-m-d H:i:s', strtotime('+8 hours'));
+
+    $db->prepare(
+        'INSERT INTO sessions (id, user_id, ip_address, user_agent, expires_at)
+         VALUES (?, ?, ?, ?, ?)'
+    )->execute([
+        $hashedToken,
+        $user['id'],
+        $_SERVER['REMOTE_ADDR']     ?? null,
+        $_SERVER['HTTP_USER_AGENT'] ?? null,
+        $expiresAt,
+    ]);
+
+    $db->prepare('UPDATE users SET last_login = NOW() WHERE id = ?')
+       ->execute([$user['id']]);
+
+    jsonResponse([
+        'token'      => $rawToken,
+        'expires_at' => $expiresAt,
+        'user'       => [
+            'id'    => $user['id'],
+            'name'  => $user['name'],
+            'email' => $user['email'],
+            'role'  => $user['role'],
+        ],
+    ]);
 }
 
-/**
- * Require a valid Bearer token.
- * On success returns the authenticated user row.
- * On failure sends 401 JSON and exits.
- */
-function requireAuth(): array
-{
-    $authHeader = getAuthHeader();
-
-    if (empty($authHeader) || !preg_match('/^Bearer\s+(\S+)$/i', $authHeader, $m)) {
-        http_response_code(401);
-        header('Content-Type: application/json; charset=utf-8');
-        // 'received' helps you debug what header (if any) arrived
-        echo json_encode([
-            'error'    => 'No token provided.',
-            'received' => substr($authHeader, 0, 30) ?: 'empty',
-        ]);
-        exit;
+// ── LOGOUT ────────────────────────────────────────────────────
+if ($action === 'logout' && $method === 'POST') {
+    $header = getAuthHeader();
+    if (preg_match('/^Bearer\s+(\S+)$/i', $header, $m)) {
+        getDB()->prepare('DELETE FROM sessions WHERE id = ?')
+               ->execute([hash('sha256', $m[1])]);
     }
-
-    $token = hash('sha256', $m[1]);
-    $db    = getDB();
-
-    $stmt = $db->prepare(
-        'SELECT s.user_id, s.expires_at,
-                u.id, u.name, u.email, u.role
-         FROM   sessions s
-         JOIN   users    u ON u.id = s.user_id
-         WHERE  s.id = ?
-           AND  u.is_active = 1'
-    );
-    $stmt->execute([$token]);
-    $row = $stmt->fetch();
-
-    if (!$row) {
-        http_response_code(401);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['error' => 'Invalid or expired token.']);
-        exit;
-    }
-
-    if (new DateTime($row['expires_at']) < new DateTime()) {
-        $db->prepare('DELETE FROM sessions WHERE id = ?')->execute([$token]);
-        http_response_code(401);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['error' => 'Token expired. Please log in again.']);
-        exit;
-    }
-
-    return $row;
+    jsonResponse(['message' => 'Logged out.']);
 }
 
-/**
- * Require the authenticated user to have the 'admin' role.
- */
-function requireAdmin(): array
-{
+// ── ME ────────────────────────────────────────────────────────
+if ($action === 'me' && $method === 'GET') {
     $user = requireAuth();
-
-    if ($user['role'] !== 'admin') {
-        http_response_code(403);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['error' => 'Admin access required.']);
-        exit;
-    }
-
-    return $user;
+    jsonResponse([
+        'id'    => $user['id'],
+        'name'  => $user['name'],
+        'email' => $user['email'],
+        'role'  => $user['role'],
+    ]);
 }
+
+jsonResponse(['error' => 'Unknown action.'], 400);
