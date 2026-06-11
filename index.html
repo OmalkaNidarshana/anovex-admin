@@ -110,7 +110,38 @@ input,select,textarea{font-family:'DM Sans',sans-serif;outline:none}
 .login-hint{font-size:12px;color:var(--text3);text-align:center;margin-top:14px}
 .login-hint code{color:var(--accent)}
 
-/* ── APP SHELL ───────────────────────────────────────────────── */
+/* ── LOGOUT SCREEN ───────────────────────────────────────────── */
+#logout-screen{
+  position:fixed;inset:0;z-index:200;
+  display:none;align-items:center;justify-content:center;
+  background:var(--bg);
+}
+#logout-screen.active{display:flex}
+#logout-canvas{position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;z-index:0}
+.logout-card{
+  position:relative;z-index:10;
+  background:rgba(17,19,26,0.82);
+  backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid rgba(30,120,255,0.25);
+  box-shadow:0 0 0 1px rgba(0,212,255,0.06),0 24px 64px rgba(0,0,0,0.55);
+  border-radius:var(--radius-xl);padding:40px 44px;
+  width:100%;max-width:380px;text-align:center;
+}
+.logout-icon{
+  width:72px;height:72px;border-radius:50%;
+  background:rgba(30,120,255,0.1);border:1px solid rgba(0,212,255,0.2);
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 20px;
+}
+.logout-title{
+  font-family:'Space Grotesk',sans-serif;font-size:22px;font-weight:600;
+  color:var(--text);margin-bottom:8px;
+}
+.logout-sub{font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:24px}
+.logout-bar{height:3px;background:var(--bg4);border-radius:2px;overflow:hidden;margin-bottom:10px}
+.logout-bar-fill{height:100%;width:0%;background:linear-gradient(90deg,#1e78ff,#00d4ff);border-radius:2px;transition:width 0.05s linear}
+.logout-hint{font-size:12px;color:var(--text3)}
+
 #app{display:none;height:100vh;overflow:hidden}
 #app.active{display:flex}
 
@@ -370,6 +401,31 @@ textarea.form-input{resize:vertical;min-height:80px}
 </div>
 
 <!-- ═══════════════════════════════════════════════════
+     LOGOUT SCREEN
+═══════════════════════════════════════════════════ -->
+<div id="logout-screen">
+  <canvas id="logout-canvas"></canvas>
+  <div class="login-grid-overlay"></div>
+  <div class="logout-card">
+    <div class="logout-icon">
+      <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="url(#lg-stroke)" stroke-width="1.5">
+        <defs>
+          <linearGradient id="lg-stroke" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#00d4ff"/>
+            <stop offset="100%" stop-color="#1e78ff"/>
+          </linearGradient>
+        </defs>
+        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75"/>
+      </svg>
+    </div>
+    <div class="logout-title">Signed Out</div>
+    <div class="logout-sub">You have been securely signed out<br>of your Anovex admin panel.</div>
+    <div class="logout-bar"><div class="logout-bar-fill" id="logout-bar-fill"></div></div>
+    <div class="logout-hint">Redirecting to login…</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
      APP SHELL
 ═══════════════════════════════════════════════════ -->
 <div id="app">
@@ -572,10 +628,10 @@ textarea.form-input{resize:vertical;min-height:80px}
 const API_BASE = '';   // e.g. 'https://yourdomain.com' or '' for same-origin
 
 // ── STATE ─────────────────────────────────────────────────────
-var TOKEN = localStorage.getItem('anovx_token') || null;
-var CURRENT_USER = JSON.parse(localStorage.getItem('anovx_user') || 'null');
-var CLIENTS = [];
-var editingProposalId = null;
+let TOKEN = localStorage.getItem('anovx_token') || null;
+let CURRENT_USER = JSON.parse(localStorage.getItem('anovx_user') || 'null');
+let CLIENTS = [];
+let editingProposalId = null;
 
 // ── API HELPER ────────────────────────────────────────────────
 async function api(path, options = {}) {
@@ -627,10 +683,29 @@ async function doLogout() {
   TOKEN = null; CURRENT_USER = null;
   localStorage.removeItem('anovx_token');
   localStorage.removeItem('anovx_user');
+
+  // Hide app, show logout screen
   document.getElementById('app').classList.remove('active');
-  document.getElementById('login-page').classList.add('active');
-  document.getElementById('login-pass').value = '';
+  const screen = document.getElementById('logout-screen');
+  screen.classList.add('active');
+  startLogoutCanvas();
+
+  // Animate the progress bar over 2.4 seconds then go to login
+  const bar = document.getElementById('logout-bar-fill');
+  let pct = 0;
+  const timer = setInterval(() => {
+    pct += 1;
+    bar.style.width = pct + '%';
+    if (pct >= 100) {
+      clearInterval(timer);
+      screen.classList.remove('active');
+      stopLogoutCanvas();
+      document.getElementById('login-page').classList.add('active');
+      document.getElementById('login-pass').value = '';
+    }
+  }, 24);
 }
+
 
 // ── BOOT ──────────────────────────────────────────────────────
 function bootApp() {
@@ -1070,7 +1145,7 @@ async function viewInvoice(id) {
 }
 
 // ── INVOICE MODAL ─────────────────────────────────────────────
-var lineItems = [];
+let lineItems = [];
 
 function openInvoiceModal() {
   lineItems = [{ description:'', quantity:1, unit_price:0 }];
@@ -1156,7 +1231,7 @@ function toast(msg, color='var(--green)') {
 const fmt  = n => parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
 const fmtN = n => parseFloat(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 
-var debounceTimer;
+let debounceTimer;
 function debounce(fn, delay) {
   clearTimeout(debounceTimer);
   debounceTimer = setTimeout(fn, delay);
@@ -1166,7 +1241,106 @@ function debounce(fn, delay) {
 document.getElementById('login-pass').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
 document.getElementById('login-email').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('login-pass').focus(); });
 
-// ── ANIMATED CIRCUIT BOARD BACKGROUND ─────────────────────────
+// ── LOGOUT CANVAS (same circuit animation as login) ───────────
+var logoutRaf = null;
+
+function startLogoutCanvas() {
+  const canvas = document.getElementById('logout-canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  const C1='#1e78ff', C2='#00d4ff';
+  const TAGS=['<html>','</div>','SELECT *','git push','sudo','npm run','API','async','await','JWT','REST','SSL','Docker','nginx','PHP','MySQL'];
+  let nodes, edges, particles, floats;
+
+  function mkNodes(n) {
+    return Array.from({length:n},()=>({
+      x:Math.random()*canvas.width, y:Math.random()*canvas.height,
+      r:Math.random()*2.5+1.2, pulse:Math.random()*Math.PI*2,
+      speed:0.012+Math.random()*0.018,
+      vx:(Math.random()-.5)*0.18, vy:(Math.random()-.5)*0.18,
+    }));
+  }
+  function mkFloat(){
+    const side=Math.random()<0.5;
+    return {text:TAGS[Math.floor(Math.random()*TAGS.length)],x:side?-80:canvas.width+80,y:Math.random()*canvas.height,vx:side?0.2+Math.random()*0.18:-(0.2+Math.random()*0.18),alpha:0,size:9+Math.random()*5,color:Math.random()<0.5?C1:C2};
+  }
+
+  nodes=mkNodes(45); particles=[]; floats=Array.from({length:10},mkFloat);
+
+  function frame(ts) {
+    if (!document.getElementById('logout-screen').classList.contains('active')) return;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    // bg
+    const bg=ctx.createRadialGradient(canvas.width*.5,canvas.height*.5,0,canvas.width*.5,canvas.height*.5,Math.max(canvas.width,canvas.height)*.75);
+    bg.addColorStop(0,'rgba(5,10,24,1)'); bg.addColorStop(1,'rgba(2,4,12,1)');
+    ctx.fillStyle=bg; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // hex grid
+    const hs=60,hr=hs*0.866;
+    ctx.strokeStyle='rgba(30,120,255,0.045)'; ctx.lineWidth=0.6;
+    for(let r=-1;r<canvas.height/hs+2;r++) for(let c=-1;c<canvas.width/hr+2;c++){
+      const cx=c*hr*2+(r%2===0?0:hr),cy=r*hs*0.75;
+      ctx.beginPath();
+      for(let s=0;s<6;s++){const a=Math.PI/180*(60*s-30);s===0?ctx.moveTo(cx+hs*.5*Math.cos(a),cy+hs*.5*Math.sin(a)):ctx.lineTo(cx+hs*.5*Math.cos(a),cy+hs*.5*Math.sin(a));}
+      ctx.closePath(); ctx.stroke();
+    }
+
+    // edges + particles
+    const DIST=Math.min(canvas.width,canvas.height)*0.22; edges=[];
+    for(let i=0;i<nodes.length;i++) for(let j=i+1;j<nodes.length;j++){
+      const dx=nodes[i].x-nodes[j].x,dy=nodes[i].y-nodes[j].y,d=Math.sqrt(dx*dx+dy*dy);
+      if(d<DIST){
+        edges.push([i,j]);
+        ctx.beginPath();ctx.moveTo(nodes[i].x,nodes[i].y);ctx.lineTo(nodes[j].x,nodes[i].y);ctx.lineTo(nodes[j].x,nodes[j].y);
+        ctx.strokeStyle=`rgba(30,120,255,${(1-d/DIST)*0.28})`;ctx.lineWidth=0.7;ctx.stroke();
+      }
+    }
+    particles.forEach((p,pi)=>{
+      p.t+=p.speed; if(p.t>1){const e=edges[Math.floor(Math.random()*edges.length)];if(e)particles[pi]={a:e[0],b:e[1],t:0,speed:0.003+Math.random()*0.004};return;}
+      const a=nodes[p.a],b=nodes[p.b],al=Math.sin(p.t*Math.PI)*0.9;
+      const px=p.t<0.5?a.x+(b.x-a.x)*(p.t*2):b.x, py=p.t<0.5?a.y:a.y+(b.y-a.y)*((p.t-.5)*2);
+      const g=ctx.createRadialGradient(px,py,0,px,py,5);g.addColorStop(0,`rgba(0,212,255,${al})`);g.addColorStop(1,'rgba(0,212,255,0)');
+      ctx.beginPath();ctx.arc(px,py,4,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+      ctx.beginPath();ctx.arc(px,py,1.5,0,Math.PI*2);ctx.fillStyle=`rgba(255,255,255,${al*0.9})`;ctx.fill();
+    });
+    if(Math.random()<0.04&&particles.length<25&&edges.length){const e=edges[Math.floor(Math.random()*edges.length)];if(e)particles.push({a:e[0],b:e[1],t:0,speed:0.003+Math.random()*0.004});}
+
+    // nodes
+    nodes.forEach(n=>{
+      n.pulse+=n.speed;n.x+=n.vx;n.y+=n.vy;
+      if(n.x<-20)n.x=canvas.width+20;if(n.x>canvas.width+20)n.x=-20;
+      if(n.y<-20)n.y=canvas.height+20;if(n.y>canvas.height+20)n.y=-20;
+      const gw=0.4+Math.sin(n.pulse)*0.3;
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r*3,0,Math.PI*2);ctx.strokeStyle=`rgba(30,120,255,${gw*0.25})`;ctx.lineWidth=0.8;ctx.stroke();
+      const rg=ctx.createRadialGradient(n.x,n.y,0,n.x,n.y,n.r*1.4);rg.addColorStop(0,`rgba(0,212,255,${gw})`);rg.addColorStop(1,'rgba(30,120,255,0)');
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r*1.4,0,Math.PI*2);ctx.fillStyle=rg;ctx.fill();
+      ctx.beginPath();ctx.arc(n.x,n.y,n.r*.55,0,Math.PI*2);ctx.fillStyle=`rgba(200,235,255,${gw*0.85})`;ctx.fill();
+    });
+
+    // floating tags
+    floats.forEach((f,fi)=>{
+      f.x+=f.vx;f.alpha=Math.min(f.alpha+0.008,0.28);
+      if((f.vx>0&&f.x>canvas.width+120)||(f.vx<0&&f.x<-120))floats[fi]=mkFloat();
+      ctx.save();ctx.globalAlpha=f.alpha;ctx.fillStyle=f.color;ctx.font=`${f.size}px 'Courier New',monospace`;ctx.fillText(f.text,f.x,f.y);ctx.restore();
+    });
+
+    // scan line
+    const sy=((ts*0.025)%canvas.height);
+    const sl=ctx.createLinearGradient(0,sy-30,0,sy+30);sl.addColorStop(0,'rgba(0,212,255,0)');sl.addColorStop(.5,'rgba(0,212,255,0.04)');sl.addColorStop(1,'rgba(0,212,255,0)');
+    ctx.fillStyle=sl;ctx.fillRect(0,sy-30,canvas.width,60);
+
+    logoutRaf=requestAnimationFrame(frame);
+  }
+  logoutRaf=requestAnimationFrame(frame);
+}
+
+function stopLogoutCanvas() {
+  if (logoutRaf) { cancelAnimationFrame(logoutRaf); logoutRaf=null; }
+}
+
 (function initLoginCanvas() {
   const canvas = document.getElementById('login-canvas');
   const ctx    = canvas.getContext('2d');
